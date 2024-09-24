@@ -207,7 +207,7 @@ public:
 
     unsigned int mnOriginMapId;
 
-protected:    
+//protected:    
 
      // Position in absolute coordinates
      Eigen::Vector3f mWorldPos;

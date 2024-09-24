@@ -52,7 +52,7 @@ public:
 
     bool both;
 
-protected:
+//protected:
 
     void DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText);
 
