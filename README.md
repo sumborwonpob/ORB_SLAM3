@@ -6,8 +6,6 @@
 Thank you for this amazing work!
 
 ## Changes
-### 2024 August 8
-* Removes example building from CMakeLists.txt to reduce build time
 * Change initialization condition to allow easier initialization.
 * Adjust timings and number of times for bundle adjustment and scale refinement steps to reduce intermitten CPU load.
 * Change visibility of some classes arrtibute to make it easier interface in the ROS implementation.
