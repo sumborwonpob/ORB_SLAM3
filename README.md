@@ -6,6 +6,8 @@
 Thank you for this amazing work!
 
 ## Changes
-* Change initialization condition to allow easier initialization.
-* Adjust timings and number of times for bundle adjustment and scale refinement steps to reduce intermitten CPU load.
-* Change visibility of some classes arrtibute to make it easier interface in the ROS implementation.
+Mainly adjustments to facilitate and increase performance of Mono-Inertial mode.
+* Change IMU initialization condition to allow a bit easier IMU initialization.
+* Adjust timings for bundle adjustment to be faster.
+* Always do scale refinement steps every certain interval, regardless of number of KF.
+* Change visibility of some class arrtibutes to make it easier to interface in the ROS implementation.
