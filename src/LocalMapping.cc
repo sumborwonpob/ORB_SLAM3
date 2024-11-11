@@ -130,14 +130,12 @@ void LocalMapping::Run()
                     {
                         float dist = (mpCurrentKeyFrame->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->GetCameraCenter()).norm() +
                                 (mpCurrentKeyFrame->mPrevKF->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->mPrevKF->GetCameraCenter()).norm();
+
                         if(dist>0.05)
-                        {
                             mTinit += mpCurrentKeyFrame->mTimeStamp - mpCurrentKeyFrame->mPrevKF->mTimeStamp;
-                        }
                         if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2())
                         {
-                            //if((mTinit<10.f) && (dist<0.02)) // Original
-                            if((mTinit<10.f) && (dist<0.001)) // New
+                            if((mTinit<10.f) && (dist<0.01))
                             {
                                 cout << "Not enough motion for initializing. Reseting..." << endl;
                                 unique_lock<mutex> lock(mMutexReset);
@@ -204,46 +202,40 @@ void LocalMapping::Run()
                     if(mpCurrentKeyFrame->GetMap()->isImuInitialized() && mpTracker->mState==Tracking::OK) // Enter here everytime local-mapping is called
                     {
                         if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA1()){
-                            if (mTinit>3.f)
+                            if (mTinit>5.0f)
                             {
-                                cout << "start VIBA" << endl;
+                                cout << "start VIBA 1" << endl;
                                 mpCurrentKeyFrame->GetMap()->SetIniertialBA1();
-                                InitializeIMU(1.f, 1e5, true);
+                                if (mbMonocular)
+                                    InitializeIMU(1.f, 1e5, true);
+                                else
+                                    InitializeIMU(1.f, 1e5, true);
 
-                                cout << "Bundle adjustment done" << endl;
-                                cout << "--------------------------------------------------" << endl;
-                                cout << "Welcome to the Plateau of Sustainability ٩(◕‿◕)۶" << endl;
+                                cout << "end VIBA 1" << endl;
                             }
                         }
-                        // else if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2()){
-                        //     if (mTinit>3.f){
-                        //         cout << "start VIBA 2" << endl;
-                        //         mpCurrentKeyFrame->GetMap()->SetIniertialBA2();
-                        //         if (mbMonocular)
-                        //             InitializeIMU(0.f, 0.f, true);
-                        //         else
-                        //             InitializeIMU(0.f, 0.f, true);
-
-                        //         cout << "end VIBA 2" << endl;
-                        //     }
-                        // }
-
-                        // scale refinement
-                        if (((mpAtlas->KeyFramesInMap())<=200) &&
-                                ((mTinit>25.0f && mTinit<25.5f)
-                                //(mTinit>35.0f && mTinit<35.5f)||
-                                //(mTinit>45.0f && mTinit<45.5f)||
-                                //(mTinit>55.0f && mTinit<55.5f)||
-                                //(mTinit>65.0f && mTinit<65.5f)||
-                                //(mTinit>75.0f && mTinit<75.5f))    
-                            ))
-                        {
+                        else if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2()){
+                            if (mTinit>7.0f){
+                                cout << "start VIBA 2" << endl;
+                                mpCurrentKeyFrame->GetMap()->SetIniertialBA2();
                                 if (mbMonocular)
-                                {
-                                    cout << "Performing scale refinement...";
-                                    ScaleRefinement();
-                                    cout<< "    done!" << endl;
-                                }
+                                    InitializeIMU(0.f, 0.f, true);
+                                else
+                                    InitializeIMU(0.f, 0.f, true);
+
+                                cout << "end VIBA 2" << endl;
+                            }
+                        }
+                    }
+                }
+                if (mbInertial)
+                {
+                    // scale refinement
+                    if ((int)mTinit%10 == 0 && (int)mTinit/10 > 0){
+                        if (mbMonocular)
+                        {
+                            cout << "SCALE REFINEMENT: " << mTinit << "s" << endl;
+                            ScaleRefinement();
                         }
                     }
                 }
@@ -1179,7 +1171,6 @@ bool LocalMapping::isFinished()
 
 void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 {
-    cout << "-------------------Initialize IMU Called-----------------------" << endl;
     if (mbResetRequested)
         return;
 
@@ -1198,10 +1189,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
 
     if(mpAtlas->KeyFramesInMap()<nMinKF)
-    {
-        cout << "   Returning, not enough keyframes waiting for more..." << endl;
         return;
-    }
 
     // Retrieve all keyframe in temporal order
     list<KeyFrame*> lpKF;
@@ -1215,15 +1203,11 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     vector<KeyFrame*> vpKF(lpKF.begin(),lpKF.end());
 
     if(vpKF.size()<nMinKF)
-    {
         return;
-    }
 
     mFirstTs=vpKF.front()->mTimeStamp;
     if(mpCurrentKeyFrame->mTimeStamp-mFirstTs<minTime)
-    {
         return;
-    }
 
     bInitializing = true;
 
@@ -1285,7 +1269,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
     if (mScale<1e-1)
     {
-        cout << "   Returning, scale too small!" << endl;
+        cout << "scale too small" << endl;
         bInitializing=false;
         return;
     }
@@ -1325,7 +1309,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     }
 
     std::chrono::steady_clock::time_point t5 = std::chrono::steady_clock::now();
-    
+
     Verbose::PrintMess("Global Bundle Adjustment finished\nUpdating map ...", Verbose::VERBOSITY_NORMAL);
 
     // Get Map Mutex
@@ -1438,7 +1422,6 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
     mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex();
 
-    cout << "   Return from Initialize IMU Successfully!" << endl;
     return;
 }
 
