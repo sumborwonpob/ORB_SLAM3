@@ -64,7 +64,7 @@ void LocalMapping::SetTracker(Tracking *pTracker)
 void LocalMapping::Run()
 {
     mbFinished = false;
-
+    int last_sr_second = 0.0;
     while(1)
     {
         // Tracking will see that Local Mapping is busy
@@ -135,7 +135,7 @@ void LocalMapping::Run()
                             mTinit += mpCurrentKeyFrame->mTimeStamp - mpCurrentKeyFrame->mPrevKF->mTimeStamp;
                         if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2())
                         {
-                            if((mTinit<10.f) && (dist<0.01))
+                            if((mTinit<10.f) && (dist<0.0001))
                             {
                                 cout << "Not enough motion for initializing. Reseting..." << endl;
                                 unique_lock<mutex> lock(mMutexReset);
@@ -202,7 +202,7 @@ void LocalMapping::Run()
                     if(mpCurrentKeyFrame->GetMap()->isImuInitialized() && mpTracker->mState==Tracking::OK) // Enter here everytime local-mapping is called
                     {
                         if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA1()){
-                            if (mTinit>5.0f)
+                            if (mTinit>3.0f)
                             {
                                 cout << "start VIBA 1" << endl;
                                 mpCurrentKeyFrame->GetMap()->SetIniertialBA1();
@@ -215,7 +215,7 @@ void LocalMapping::Run()
                             }
                         }
                         else if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2()){
-                            if (mTinit>7.0f){
+                            if (mTinit>5.0f){
                                 cout << "start VIBA 2" << endl;
                                 mpCurrentKeyFrame->GetMap()->SetIniertialBA2();
                                 if (mbMonocular)
@@ -234,8 +234,12 @@ void LocalMapping::Run()
                     if ((int)mTinit%10 == 0 && (int)mTinit/10 > 0){
                         if (mbMonocular)
                         {
-                            cout << "SCALE REFINEMENT: " << mTinit << "s" << endl;
-                            ScaleRefinement();
+                            if(last_sr_second != (int)mTinit)
+                            {
+                                cout << "SCALE REFINEMENT: " << (int)mTinit << "s" << endl;
+                                ScaleRefinement();
+                                last_sr_second = (int)mTinit;
+                            }
                         }
                     }
                 }
@@ -1258,10 +1262,12 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
         mba = mpCurrentKeyFrame->GetAccBias().cast<double>();
     }
 
+    // Give initial scale
     mScale=1.0;
-
+    
     mInitTime = mpTracker->mLastFrame.mTimeStamp-vpKF.front()->mTimeStamp;
 
+    // Optimize and return scale factor
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
     Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), mRwg, mScale, mbg, mba, mbMonocular, infoInertial, false, false, priorG, priorA);
 
@@ -1460,7 +1466,7 @@ void LocalMapping::ScaleRefinement()
     Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), mRwg, mScale);
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 
-    if (mScale<1e-1) // 1e-1
+    if (mScale<5e-1) // 1e-1
     {
         cout << "scale too small" << endl;
         bInitializing=false;
