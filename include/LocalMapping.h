@@ -183,6 +183,7 @@ public:
     void InitializeIMU(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
 
     // My edit
+    int scale_calculation_count = 0;
     void InitializeIMUWithGuess(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
     void setScaleInitialGuess(double initial_guess = -1.0);
     //////////

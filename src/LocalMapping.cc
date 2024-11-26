@@ -1461,7 +1461,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     bInitializing = false;
 
     mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex();
-
+    scale_calculation_count++;
     return;
 }
 
@@ -1567,25 +1567,37 @@ void LocalMapping::InitializeIMUWithGuess(float priorG, float priorA, bool bFIBA
     Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), mRwg, mScale, mbg, mba, mbMonocular, infoInertial, false, false, priorG, priorA);
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 
+    cout << "  ORB Estimated scale: " << mScale << " Initial guess: " << mScaleInitialGuess << endl;
+    if(!mpCurrentKeyFrame->GetMap()->isImuInitialized()) //
+    {
+        if (mScale<1e-1 && mScaleInitialGuess == -1.0)
+        {
+            cout << "scale too small" << endl;
+            bInitializing=false;
+            return;
+        }
+    }
+    else
+    {
+        if (mScale<5e-1 && mScaleInitialGuess == -1.0)
+        {
+            cout << "scale too small" << endl;
+            bInitializing=false;
+            return;
+        }
+    }
+
     // Fuse initial guess here
     if(mScaleInitialGuess != -1.0)
     {
         cout << "Using initial guess" << endl;
-        mScale=((mScale*0.25)+(mScaleInitialGuess*0.75));
+        mScale=((mScale*0.2)+(mScaleInitialGuess*0.8));
     }
     else
     {
         cout << "NOT using initial guess" << endl;
-        mScale=1.0;
     }
-
-    cout << "ORB Estimated scale: " << mScale << endl;
-    if (mScale<1e-1)
-    {
-        cout << "scale too small" << endl;
-        bInitializing=false;
-        return;
-    }
+    cout << "  Adopted scale: " << mScale << endl;
 
     // Before this line we are not changing the map
     {
@@ -1734,7 +1746,7 @@ void LocalMapping::InitializeIMUWithGuess(float priorG, float priorA, bool bFIBA
     bInitializing = false;
 
     mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex();
-
+    scale_calculation_count++;
     return;
 }
 
@@ -1768,29 +1780,33 @@ void LocalMapping::ScaleRefinement()
 
     mRwg = Eigen::Matrix3d::Identity();
 
+    mScale=1.0;
+
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
     Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), mRwg, mScale);
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 
+    cout << "  ORB Estimated scale: " << mScale << " Initial guess: " << mScaleInitialGuess << endl;
+    if (mScale<5e-1 && mScaleInitialGuess == -1.0) // 
+    {
+        cout << "    scale too small" << endl;
+        bInitializing=false;
+        return;
+    }
+
+    // Fuse initial guess here
     if(mScaleInitialGuess != -1.0)
     {
         cout << "Using initial guess" << endl;
-        mScale=((mScale*0.25)+(mScaleInitialGuess*0.75));
+        //mScale=((mScale*0.5)+(mScaleInitialGuess*0.5));
+        mScale=mScaleInitialGuess;
     }
     else
     {
         cout << "NOT using initial guess" << endl;
-        mScale=1.0;
     }
+    cout << "  Adopted scale: " << mScale << endl;
 
-    cout << "  ORB Estimated scale: " << mScale << endl;
-    if (mScale<1e-1) // 1e-1
-    {
-        cout << "scale too small" << endl;
-        bInitializing=false;
-        return;
-    }
-    
     Sophus::SO3d so3wg(mRwg);
     // Before this line we are not changing the map
     unique_lock<mutex> lock(mpAtlas->GetCurrentMap()->mMutexMapUpdate);
@@ -1814,7 +1830,7 @@ void LocalMapping::ScaleRefinement()
 
     // To perform pose-inertial opt w.r.t. last keyframe
     mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex();
-
+    scale_calculation_count++;
     return;
 }
 
