@@ -214,7 +214,7 @@ void LocalMapping::Run()
                     if(mpCurrentKeyFrame->GetMap()->isImuInitialized() && mpTracker->mState==Tracking::OK) // Enter here everytime local-mapping is called
                     {
                         if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA1()){
-                            if (mTinit>5.0f)
+                            if (mTinit>3.0f)
                             {
                                 cout << "start VIBA 1" << endl;
                                 mpCurrentKeyFrame->GetMap()->SetIniertialBA1();
@@ -239,7 +239,7 @@ void LocalMapping::Run()
                             }
                         }
                         else if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2()){
-                            if (mTinit>8.0f){
+                            if (mTinit>7.0f){
                                 cout << "start VIBA 2" << endl;
                                 mpCurrentKeyFrame->GetMap()->SetIniertialBA2();
                                 if (mbMonocular)
@@ -265,6 +265,14 @@ void LocalMapping::Run()
                 }
                 if (mbInertial)
                 {
+                    if ((int)mTinit == 10 && (int)mTinit/10 > 0){
+                        if(last_sr_second != (int)mTinit)
+                        {
+                            cout << "SCALE REFINEMENT: " << (int)mTinit << "s" << endl;
+                            ScaleRefinement();
+                            last_sr_second = (int)mTinit;
+                        }
+                    }
                     // scale refinement
                     if ((int)mTinit%15 == 0 && (int)mTinit/15 > 0){
                         if (mbMonocular)
@@ -1217,7 +1225,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     int nMinKF;
     if (mbMonocular)
     {
-        minTime = 2.0;
+        minTime = 1.0;
         nMinKF = 10;
     }
     else

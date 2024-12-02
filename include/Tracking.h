@@ -176,6 +176,9 @@ public:
 
     bool mbWriteStats;
 
+    // MToF Edit
+    bool externalDepthAvailable = false;
+
 #ifdef REGISTER_TIMES
     void LocalMapStats2File();
     void TrackStats2File();
@@ -192,7 +195,7 @@ public:
     vector<double> vdTrackTotal_ms;
 #endif
 
-protected:
+public:
 
     // Main tracking function. It is independent of the input sensor.
     void Track();
@@ -204,6 +207,7 @@ protected:
     void MonocularInitialization();
     //void CreateNewMapPoints();
     void CreateInitialMapMonocular();
+    void CreateInitialMapMtofMonocular();
 
     void CheckReplacedInLastFrame();
     bool TrackReferenceKeyFrame();
