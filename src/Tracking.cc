@@ -2450,29 +2450,36 @@ void Tracking::MonocularInitialization()
 
     if(!mbReadyToInitializate)
     {
-        // Set Reference Frame
+        // Set Reference Frame if more than 100 KPs
         if(mCurrentFrame.mvKeys.size()>100)
         {
-
+            // Init frames
             mInitialFrame = Frame(mCurrentFrame);
             mLastFrame = Frame(mCurrentFrame);
+            // ????? Resize the std::vector<cv::Point2f>?
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
+            // Then append the cv::Point2f from ketpoints.
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
 
+            // fill -1 to all mvIniMatches (std::vector<int>)
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 
+            // If it has IMU
             if (mSensor == System::IMU_MONOCULAR)
             {
+                // Delete previous integrate
                 if(mpImuPreintegratedFromLastKF)
                 {
                     delete mpImuPreintegratedFromLastKF;
                 }
+                // Reinit integrate
                 mpImuPreintegratedFromLastKF = new IMU::Preintegrated(IMU::Bias(),*mpImuCalib);
+                // Assign integrate to current frame
                 mCurrentFrame.mpImuPreintegrated = mpImuPreintegratedFromLastKF;
 
             }
-
+            // Set ready to init
             mbReadyToInitializate = true;
 
             return;
@@ -2480,24 +2487,26 @@ void Tracking::MonocularInitialization()
     }
     else
     {
-        if (((int)mCurrentFrame.mvKeys.size()<=100)||((mSensor == System::IMU_MONOCULAR)&&(mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp>1.0)))
+        // If this frame > 100 kps and also more than 1 sec after previous, proceed
+        if (((int)mCurrentFrame.mvKeys.size()<=100)||((mSensor == System::IMU_MONOCULAR)&&(mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp>=1.0)))
         {
             mbReadyToInitializate = false;
 
             return;
         }
 
-        // Find correspondences
+        // Find matches
         ORBmatcher matcher(0.9,true);
         int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
 
-        // Check if there are enough correspondences
+        // Check if there are >= 100 matches
         if(nmatches<100)
         {
             mbReadyToInitializate = false;
             return;
         }
 
+        // Now declare these
         Sophus::SE3f Tcw;
         vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
 
@@ -2513,8 +2522,8 @@ void Tracking::MonocularInitialization()
             }
 
             // Set Frame Poses
-            mInitialFrame.SetPose(Sophus::SE3f());
-            mCurrentFrame.SetPose(Tcw);
+            mInitialFrame.SetPose(Sophus::SE3f()); // pose 0
+            mCurrentFrame.SetPose(Tcw); // Pose of 2nd frame
 
             CreateInitialMapMonocular();
         }
@@ -2658,6 +2667,40 @@ void Tracking::CreateInitialMapMonocular()
     initID = pKFcur->mnId;
 }
 
+void GrabFirstImageMtofImu(const cv::Mat &im, const double &timestamp)
+{
+    mImGray = im;
+
+    mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+
+    if (mState==NO_IMAGES_YET)
+        t0=timestamp;
+    
+    lastID = mCurrentFrame.mnId;
+}
+
+void Tracking::CreateInitialMapMtofMonocular(std::vector<MapPoint*> mvMP)
+{
+    // // Create KeyFrames
+    // KeyFrame* pKFini = new KeyFrame(mCurrentFrame,mpAtlas->GetCurrentMap(),mpKeyFrameDB);
+    // KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpAtlas->GetCurrentMap(),mpKeyFrameDB);
+
+    // if(mSensor == System::IMU_MONOCULAR)
+    //     pKFini->mpImuPreintegrated = (IMU::Preintegrated*)(NULL);
+
+
+    // pKFini->ComputeBoW();
+    // pKFcur->ComputeBoW();
+
+    // // Insert KFs in the map
+    // mpAtlas->AddKeyFrame(pKFini);
+    // mpAtlas->AddKeyFrame(pKFcur);
+
+    // for(int i = 0 ; i < mvMP.size() ;i++)
+    // {
+        
+    // }
+}
 
 void Tracking::CreateMapInAtlas()
 {
