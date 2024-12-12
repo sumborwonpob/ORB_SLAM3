@@ -202,9 +202,13 @@ public:
 
     // Map initialization for stereo and RGB-D
     void StereoInitialization();
+    void MonocularInitialization();
 
     // Map initialization for monocular
-    void MonocularInitialization();
+    void GrabFirstImageMtofImu(const cv::Mat &im, const double &timestamp);
+    void CreateInitialMapMtofMonocular(std::vector<cv::Point2f> mvMtofImgPts, std::vector<cv::Point3f> mvMtofPCL);
+    ////////////
+
     //void CreateNewMapPoints();
     void CreateInitialMapMonocular();
     void CreateInitialMapMtofMonocular();
