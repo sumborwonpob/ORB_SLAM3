@@ -176,6 +176,9 @@ public:
 
     bool mbWriteStats;
 
+    // MToF Edit
+    bool externalDepthAvailable = false;
+
 #ifdef REGISTER_TIMES
     void LocalMapStats2File();
     void TrackStats2File();
@@ -192,18 +195,23 @@ public:
     vector<double> vdTrackTotal_ms;
 #endif
 
-protected:
+public:
 
     // Main tracking function. It is independent of the input sensor.
     void Track();
 
     // Map initialization for stereo and RGB-D
     void StereoInitialization();
+    void MonocularInitialization();
 
     // Map initialization for monocular
-    void MonocularInitialization();
+    void GrabFirstImageMtofImu(const cv::Mat &im, const double &timestamp);
+    void CreateInitialMapMtofMonocular(std::vector<cv::Point2f> mvMtofImgPts, std::vector<cv::Point3f> mvMtofPCL);
+    ////////////
+
     //void CreateNewMapPoints();
     void CreateInitialMapMonocular();
+    void CreateInitialMapMtofMonocular();
 
     void CheckReplacedInLastFrame();
     bool TrackReferenceKeyFrame();

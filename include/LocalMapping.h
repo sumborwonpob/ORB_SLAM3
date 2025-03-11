@@ -86,7 +86,8 @@ public:
     Eigen::Matrix3d mRwg;
     Eigen::Vector3d mbg;
     Eigen::Vector3d mba;
-    double mScale;
+    double mScale = 1.0;
+    double mScaleInitialGuess = -1.0;
     double mInitTime;
     double mCostTime;
 
@@ -180,6 +181,14 @@ public:
     std::mutex mMutexAccept;
 
     void InitializeIMU(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
+
+    // My edit
+    int scale_calculation_count = 0;
+    void InitializeIMUWithGuess(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
+    void setScaleInitialGuess(double initial_guess = -1.0);
+    void VerifyRwg();
+    //////////
+
     void ScaleRefinement();
 
     bool bInitializing;

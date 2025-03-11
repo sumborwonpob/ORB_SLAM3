@@ -4732,7 +4732,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
             }
 
             const float chi2 = e->chi2();
-            bool bClose = pFrame->mvpMapPoints[idx]->mTrackDepth<10.f;
+            bool bClose = pFrame->mvpMapPoints[idx]->mTrackDepth<5.f;
 
             if((chi2>chi2Mono[it]&&!bClose)||(bClose && chi2>chi2close)||!e->isDepthPositive())
             {

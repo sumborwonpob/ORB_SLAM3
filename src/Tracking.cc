@@ -45,7 +45,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mState(NO_IMAGES_YET), mSensor(sensor), mTrackedFr(0), mbStep(false),
     mbOnlyTracking(false), mbMapUpdated(false), mbVO(false), mpORBVocabulary(pVoc), mpKeyFrameDB(pKFDB),
     mbReadyToInitializate(false), mpSystem(pSys), mpViewer(NULL), bStepByStep(false),
-    mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
+    mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(1.0),
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
 {
     // Load camera parameters from settings file
@@ -1837,17 +1837,24 @@ void Tracking::Track()
                     cout << "Timestamp jump detected. State set to LOST. Reseting IMU integration..." << endl;
                     if(!pCurrentMap->GetIniertialBA2())
                     {
-                        mpSystem->ResetActiveMap();
+                        //mpSystem->ResetActiveMap();
+                        ResetActiveMap();
                     }
                     else
                     {
+                        //CreateMapInAtlas();
+                        cout << "Resetting........" << endl;
+                        ResetActiveMap();
+                        cout << "Createing map....." << endl;
                         CreateMapInAtlas();
+                        cout << "Done!" << endl;
                     }
                 }
                 else
                 {
                     cout << "Timestamp jump detected, before IMU initialization. Reseting..." << endl;
-                    mpSystem->ResetActiveMap();
+                    //mpSystem->ResetActiveMap();
+                    ResetActiveMap();
                 }
                 return;
             }
@@ -2450,29 +2457,36 @@ void Tracking::MonocularInitialization()
 
     if(!mbReadyToInitializate)
     {
-        // Set Reference Frame
+        // Set Reference Frame if more than 100 KPs
         if(mCurrentFrame.mvKeys.size()>100)
         {
-
+            // Init frames
             mInitialFrame = Frame(mCurrentFrame);
             mLastFrame = Frame(mCurrentFrame);
+            // ????? Resize the std::vector<cv::Point2f>?
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
+            // Then append the cv::Point2f from ketpoints.
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
 
+            // fill -1 to all mvIniMatches (std::vector<int>)
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 
+            // If it has IMU
             if (mSensor == System::IMU_MONOCULAR)
             {
+                // Delete previous integrate
                 if(mpImuPreintegratedFromLastKF)
                 {
                     delete mpImuPreintegratedFromLastKF;
                 }
+                // Reinit integrate
                 mpImuPreintegratedFromLastKF = new IMU::Preintegrated(IMU::Bias(),*mpImuCalib);
+                // Assign integrate to current frame
                 mCurrentFrame.mpImuPreintegrated = mpImuPreintegratedFromLastKF;
 
             }
-
+            // Set ready to init
             mbReadyToInitializate = true;
 
             return;
@@ -2480,24 +2494,26 @@ void Tracking::MonocularInitialization()
     }
     else
     {
-        if (((int)mCurrentFrame.mvKeys.size()<=100)||((mSensor == System::IMU_MONOCULAR)&&(mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp>1.0)))
+        // If this frame > 100 kps and also more than 1 sec after previous, proceed
+        if (((int)mCurrentFrame.mvKeys.size()<=100)||((mSensor == System::IMU_MONOCULAR)&&(mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp>0.25)))
         {
             mbReadyToInitializate = false;
 
             return;
         }
 
-        // Find correspondences
+        // Find matches
         ORBmatcher matcher(0.9,true);
         int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
 
-        // Check if there are enough correspondences
+        // Check if there are >= 100 matches
         if(nmatches<100)
         {
             mbReadyToInitializate = false;
             return;
         }
 
+        // Now declare these
         Sophus::SE3f Tcw;
         vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
 
@@ -2513,8 +2529,8 @@ void Tracking::MonocularInitialization()
             }
 
             // Set Frame Poses
-            mInitialFrame.SetPose(Sophus::SE3f());
-            mCurrentFrame.SetPose(Tcw);
+            mInitialFrame.SetPose(Sophus::SE3f()); // pose 0
+            mCurrentFrame.SetPose(Tcw); // Pose of 2nd frame
 
             CreateInitialMapMonocular();
         }
@@ -2586,7 +2602,7 @@ void Tracking::CreateInitialMapMonocular()
     else
         invMedianDepth = 1.0f/medianDepth;
 
-    if(medianDepth<0 || pKFcur->TrackedMapPoints(1)<50) // TODO Check, originally 100 tracks
+    if(medianDepth<0 || pKFcur->TrackedMapPoints(1)<100) // TODO Check, originally 100 tracks
     {
         Verbose::PrintMess("Wrong initialization, reseting...", Verbose::VERBOSITY_QUIET);
         mpSystem->ResetActiveMap();
@@ -2658,6 +2674,174 @@ void Tracking::CreateInitialMapMonocular()
     initID = pKFcur->mnId;
 }
 
+void Tracking::GrabFirstImageMtofImu(const cv::Mat &im, const double &timestamp)
+{
+    mImGray = im.clone(); // Resized image provided
+
+    mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+
+    if (mState==NO_IMAGES_YET)
+        t0=timestamp;
+    
+    lastID = mCurrentFrame.mnId;
+}
+
+void Tracking::CreateInitialMapMtofMonocular(std::vector<cv::Point2f> mvMtofImgPts, std::vector<cv::Point3f> mvMtofPCL)
+{
+    if(mCurrentFrame.mvKeys.size()>100)
+    {
+        cout << "  Custom init First part" << endl;
+        // Init frames
+        mInitialFrame = Frame(mCurrentFrame);
+        mLastFrame = Frame(mCurrentFrame);
+
+        // ????? Resize the std::vector<cv::Point2f>?
+        mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
+        // Then append the cv::Point2f from ketpoints.
+        for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
+            mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
+        // fill -1 to all mvIniMatches (std::vector<int>)
+        fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
+        // Delete previous integrate
+        if(mpImuPreintegratedFromLastKF)
+        {
+            delete mpImuPreintegratedFromLastKF;
+        }
+        // Reinit integrate
+        mpImuPreintegratedFromLastKF = new IMU::Preintegrated(IMU::Bias(),*mpImuCalib);
+        // Assign integrate to current frame
+        mCurrentFrame.mpImuPreintegrated = mpImuPreintegratedFromLastKF;
+
+        cout << "  Custom init Second part" << endl;
+        // Second part
+        // Now declare these
+        Sophus::SE3f Tcw;
+        vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
+
+        // Set Frame Poses
+        mInitialFrame.SetPose(Sophus::SE3f()); // pose 0
+        mCurrentFrame.SetPose(Sophus::SE3f()); // Pose of 2nd frame
+
+        cout << "  Custom init Create map part" << endl;
+        // Create Map part
+        // Create KeyFrames
+        KeyFrame* pKFini = new KeyFrame(mInitialFrame,mpAtlas->GetCurrentMap(),mpKeyFrameDB);
+        KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpAtlas->GetCurrentMap(),mpKeyFrameDB);
+        
+        pKFini->mpImuPreintegrated = (IMU::Preintegrated*)(NULL);
+
+        // Get bow of both
+        pKFini->ComputeBoW();
+        pKFcur->ComputeBoW();
+
+        // Insert KFs in the map
+        mpAtlas->AddKeyFrame(pKFini);
+        mpAtlas->AddKeyFrame(pKFcur);
+
+        // Process Map Points
+        for(size_t i=0; i<mvMtofPCL.size();i++)
+        {
+            Eigen::Vector3f worldPos;
+            worldPos << mvMtofPCL[i].x, mvMtofPCL[i].y, mvMtofPCL[i].z;
+            MapPoint* pMP = new MapPoint(worldPos,pKFcur,mpAtlas->GetCurrentMap());
+
+            pKFini->AddMapPoint(pMP,i);
+            pKFcur->AddMapPoint(pMP,i);
+
+            mCurrentFrame.mvpMapPoints[mvIniMatches[i]] = pMP;
+            mCurrentFrame.mvbOutlier[mvIniMatches[i]] = false;
+
+            mpAtlas->AddMapPoint(pMP);
+        }
+
+        // Update Connections
+        pKFini->UpdateConnections();
+        pKFcur->UpdateConnections();
+
+        std::set<MapPoint*> sMPs;
+        sMPs = pKFini->GetMapPoints();
+
+        cout << "  Received " << sMPs.size() << " sMPs PCL" << endl;
+
+        // Bundle Adjustment
+        Verbose::PrintMess("New Map created with " + to_string(mpAtlas->MapPointsInMap()) + " points", Verbose::VERBOSITY_QUIET);
+        //Optimizer::GlobalBundleAdjustemnt(mpAtlas->GetCurrentMap(),20);
+
+        cout << "  Custom init Create map part continue" << endl;
+        // float medianDepth = pKFini->ComputeSceneMedianDepth(2);
+        // float invMedianDepth;
+        // invMedianDepth = 4.0f/medianDepth; // 4.0f
+
+        // if(medianDepth<0 || pKFcur->TrackedMapPoints(1)<50) // TODO Check, originally 100 tracks
+        // {
+        //     Verbose::PrintMess("Wrong initialization, reseting...", Verbose::VERBOSITY_QUIET);
+        //     mpSystem->ResetActiveMap();
+        //     return;
+        // }
+
+        // // Scale initial baseline
+        // Sophus::SE3f Tc2w = pKFcur->GetPose();
+        // Tc2w.translation() *= invMedianDepth;
+        // pKFcur->SetPose(Tc2w);
+
+        // // Scale points
+        // vector<MapPoint*> vpAllMapPoints = pKFini->GetMapPointMatches();
+        // for(size_t iMP=0; iMP<vpAllMapPoints.size(); iMP++)
+        // {
+        //     if(vpAllMapPoints[iMP])
+        //     {
+        //         MapPoint* pMP = vpAllMapPoints[iMP];
+        //         pMP->SetWorldPos(pMP->GetWorldPos()*invMedianDepth);
+        //         pMP->UpdateNormalAndDepth();
+        //     }
+        // }
+
+        pKFcur->mPrevKF = pKFini;
+        pKFini->mNextKF = pKFcur;
+        pKFcur->mpImuPreintegrated = mpImuPreintegratedFromLastKF;
+
+        mpImuPreintegratedFromLastKF = new IMU::Preintegrated(pKFcur->mpImuPreintegrated->GetUpdatedBias(),pKFcur->mImuCalib);
+
+
+        mpLocalMapper->InsertKeyFrame(pKFini);
+        mpLocalMapper->InsertKeyFrame(pKFcur);
+        mpLocalMapper->mFirstTs=pKFcur->mTimeStamp;
+
+        mCurrentFrame.SetPose(pKFcur->GetPose());
+        mnLastKeyFrameId=mCurrentFrame.mnId;
+        mpLastKeyFrame = pKFcur;
+        //mnLastRelocFrameId = mInitialFrame.mnId;
+
+        mvpLocalKeyFrames.push_back(pKFcur);
+        mvpLocalKeyFrames.push_back(pKFini);
+        mvpLocalMapPoints=mpAtlas->GetAllMapPoints();
+        mpReferenceKF = pKFcur;
+        mCurrentFrame.mpReferenceKF = pKFcur;
+
+        // Compute here initial velocity
+        vector<KeyFrame*> vKFs = mpAtlas->GetAllKeyFrames();
+
+        Sophus::SE3f deltaT = vKFs.back()->GetPose() * vKFs.front()->GetPoseInverse();
+        mbVelocity = false;
+        Eigen::Vector3f phi = deltaT.so3().log();
+
+        double aux = (mCurrentFrame.mTimeStamp-mLastFrame.mTimeStamp)/(mCurrentFrame.mTimeStamp-mInitialFrame.mTimeStamp);
+        phi *= aux;
+
+        mLastFrame = Frame(mCurrentFrame);
+
+        mpAtlas->SetReferenceMapPoints(mvpLocalMapPoints);
+
+        mpMapDrawer->SetCurrentCameraPose(pKFcur->GetPose());
+
+        mpAtlas->GetCurrentMap()->mvpKeyFrameOrigins.push_back(pKFini);
+
+        mState=OK;
+
+        initID = pKFcur->mnId;
+    }
+
+}
 
 void Tracking::CreateMapInAtlas()
 {
@@ -2966,15 +3150,17 @@ bool Tracking::TrackLocalMap()
                 aux2++;
         }
 
-    int inliers;
+    int inliers = 0;
     if (!mpAtlas->isImuInitialized())
+    {
         Optimizer::PoseOptimization(&mCurrentFrame);
+    }
     else
     {
         if(mCurrentFrame.mnId<=mnLastRelocFrameId+mnFramesToResetIMU)
         {
             Verbose::PrintMess("TLM: PoseOptimization ", Verbose::VERBOSITY_DEBUG);
-            Optimizer::PoseOptimization(&mCurrentFrame);
+            //Optimizer::PoseOptimization(&mCurrentFrame);
         }
         else
         {
@@ -3027,7 +3213,7 @@ bool Tracking::TrackLocalMap()
     // Decide if the tracking was succesful
     // More restrictive if there was a relocalization recently
     mpLocalMapper->mnMatchesInliers=mnMatchesInliers;
-    if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<50)
+    if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<20)
         return false;
 
     if((mnMatchesInliers>10)&&(mState==RECENTLY_LOST))
@@ -3036,7 +3222,7 @@ bool Tracking::TrackLocalMap()
 
     if (mSensor == System::IMU_MONOCULAR)
     {
-        if((mnMatchesInliers<15 && mpAtlas->isImuInitialized())||(mnMatchesInliers<50 && !mpAtlas->isImuInitialized()))
+        if((mnMatchesInliers<35 && mpAtlas->isImuInitialized())||(mnMatchesInliers<20 && !mpAtlas->isImuInitialized()))
         {
             return false;
         }
@@ -3839,6 +4025,7 @@ void Tracking::Reset(bool bLocMap)
 
 void Tracking::ResetActiveMap(bool bLocMap)
 {
+
     Verbose::PrintMess("Active map Reseting", Verbose::VERBOSITY_NORMAL);
     if(mpViewer)
     {
@@ -3858,7 +4045,7 @@ void Tracking::ResetActiveMap(bool bLocMap)
 
     // Reset Loop Closing
     Verbose::PrintMess("Reseting Loop Closing...", Verbose::VERBOSITY_NORMAL);
-    mpLoopClosing->RequestResetActiveMap(pMap);
+    //mpLoopClosing->RequestResetActiveMap(pMap);
     Verbose::PrintMess("done", Verbose::VERBOSITY_NORMAL);
 
     // Clear BoW Database
